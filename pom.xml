@@ -7,7 +7,7 @@
     <name>Metrics Statsd Support</name>
     <version>2.3.1-li-1-SNAPSHOT</version>
     <packaging>jar</packaging>
-    <url>http://github.com/organicveggie/metrics-statsd/</url>
+    <url>http://github.com/lithiumtech/metrics-statsd/</url>
     <description>Statsd reporter for codahale/metrics.</description>
 
     <properties>
@@ -32,9 +32,9 @@
     </licenses>
 
     <scm>
-        <connection>scm:git:git://github.com/organicveggie/metrics-statsd.git</connection>
-        <developerConnection>scm:git:git@github.com:organicveggie/metrics-statsd.git</developerConnection>
-        <url>http://github.com/organicveggie/metrics-statsd/</url>
+        <connection>scm:git:git://github.com/lithiumtech/metrics-statsd.git</connection>
+        <developerConnection>scm:git:git@github.com:lithiumtech/metrics-statsd.git</developerConnection>
+        <url>http://github.com/lithiumtech/metrics-statsd/</url>
     </scm>
 
     <issueManagement>
