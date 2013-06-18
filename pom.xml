@@ -163,7 +163,7 @@
         <id>release-sign-artifacts</id>
         <activation>
           <property>
-            <name>performRelease</name>
+            <name>gpgSign</name>
             <value>true</value>
           </property>
         </activation>
