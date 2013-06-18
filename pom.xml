@@ -44,12 +44,12 @@
 
     <distributionManagement>
         <snapshotRepository>
-            <id>sonatype-nexus-snapshots</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+            <id>lithium-nexus-snapshots</id>
+            <url>http://nexus.dev.lithium.com/nexus/content/repositories/snapshots</url>
         </snapshotRepository>
         <repository>
-            <id>sonatype-nexus-staging</id>
-            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+            <id>lithium-nexus-releases</id>
+            <url>http://nexus.dev.lithium.com/nexus/content/repositories/releases</url>
         </repository>
     </distributionManagement>
 
