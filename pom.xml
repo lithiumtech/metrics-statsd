@@ -43,15 +43,30 @@
     </issueManagement>
 
     <distributionManagement>
-        <snapshotRepository>
-            <id>lithium-nexus-snapshots</id>
-            <url>http://nexus.dev.lithium.com/nexus/content/repositories/snapshots</url>
-        </snapshotRepository>
         <repository>
-            <id>lithium-nexus-releases</id>
+            <id>lithium-releases</id>
+            <name>nexus-maven-repo</name>
             <url>http://nexus.dev.lithium.com/nexus/content/repositories/releases</url>
         </repository>
     </distributionManagement>
+    <repositories>
+        <repository>
+            <id>lithium-internal-nexus</id>
+            <name>nexus-maven-repo</name>
+            <url>http://nexus.dev.lithium.com/nexus/content/repositories/releases</url>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
+    <pluginRepositories>
+        <pluginRepository>
+            <id>lithium-internal-nexus</id>
+            <name>nexus-maven-repo</name>
+            <url>http://nexus.dev.lithium.com/nexus/content/repositories/releases</url>
+            <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+
 
     <dependencies>
         <dependency>
