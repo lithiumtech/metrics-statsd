@@ -57,6 +57,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     private boolean shouldTranslateTimersToGauges = false; // Statsd rewrites timers with more info, causing a potential explosion in
                                              // the number of metrics being pushed from statsd to graphite if you have a
                                              // lot of timers or histograms. See: https://github.com/etsy/statsd/blob/master/docs/metric_types.md#timing
+    private boolean minimizeMetrics = false;  // Yammer metric timers have a LOT of sub-metrics in them. We can trim this down significantly under normal circumstances.
 
     public interface UDPSocketProvider {
         DatagramSocket get() throws Exception;
@@ -123,6 +124,14 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
 
     public void setShouldTranslateTimersToGauges(boolean shouldTranslateTimersToGauges) {
         this.shouldTranslateTimersToGauges = shouldTranslateTimersToGauges;
+    }
+
+    public boolean isMinimizeMetrics() {
+        return minimizeMetrics;
+    }
+
+    public void setMinimizeMetrics(boolean minimizeMetrics) {
+        this.minimizeMetrics = minimizeMetrics;
     }
 
     @Override
@@ -244,8 +253,10 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
         sendInt(sanitizedName + ".count", StatType.GAUGE, meter.count());
         sendFloat(sanitizedName + ".meanRate", StatType.TIMER, meter.meanRate());
         sendFloat(sanitizedName + ".1MinuteRate", StatType.TIMER, meter.oneMinuteRate());
-        sendFloat(sanitizedName + ".5MinuteRate", StatType.TIMER, meter.fiveMinuteRate());
-        sendFloat(sanitizedName + ".15MinuteRate", StatType.TIMER, meter.fifteenMinuteRate());
+        if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".5MinuteRate", StatType.TIMER, meter.fiveMinuteRate());
+            sendFloat(sanitizedName + ".15MinuteRate", StatType.TIMER, meter.fifteenMinuteRate());
+        }
     }
 
     @Override
@@ -282,12 +293,16 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
 
     protected void sendSampling(String sanitizedName, Sampling metric) throws IOException {
         final Snapshot snapshot = metric.getSnapshot();
-        sendFloat(sanitizedName + ".median", StatType.TIMER, snapshot.getMedian());
-        sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
-        sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
+        if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".median", StatType.TIMER, snapshot.getMedian());
+            sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
+            sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
+        }
         sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
-        sendFloat(sanitizedName + ".99percentile", StatType.TIMER, snapshot.get99thPercentile());
-        sendFloat(sanitizedName + ".999percentile", StatType.TIMER, snapshot.get999thPercentile());
+        if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".99percentile", StatType.TIMER, snapshot.get99thPercentile());
+            sendFloat(sanitizedName + ".999percentile", StatType.TIMER, snapshot.get999thPercentile());
+        }
     }
 
 
