@@ -251,7 +251,9 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     public void processMeter(MetricName name, Metered meter, Long epoch) throws Exception {
         final String sanitizedName = sanitizeName(name);
         sendInt(sanitizedName + ".count", StatType.GAUGE, meter.count());
-        sendFloat(sanitizedName + ".meanRate", StatType.TIMER, meter.meanRate());
+        if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".meanRate", StatType.TIMER, meter.meanRate());
+        }
         sendFloat(sanitizedName + ".1MinuteRate", StatType.TIMER, meter.oneMinuteRate());
         if (!minimizeMetrics) {
             sendFloat(sanitizedName + ".5MinuteRate", StatType.TIMER, meter.fiveMinuteRate());
@@ -285,8 +287,10 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     }
 
     protected void sendSummarizable(String sanitizedName, Summarizable metric) throws IOException {
-        sendFloat(sanitizedName + ".min", StatType.TIMER, metric.min());
-        sendFloat(sanitizedName + ".max", StatType.TIMER, metric.max());
+        if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".min", StatType.TIMER, metric.min());
+            sendFloat(sanitizedName + ".max", StatType.TIMER, metric.max());
+        }
         sendFloat(sanitizedName + ".mean", StatType.TIMER, metric.mean());
         sendFloat(sanitizedName + ".stddev", StatType.TIMER, metric.stdDev());
     }
@@ -295,11 +299,11 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
         final Snapshot snapshot = metric.getSnapshot();
         if (!minimizeMetrics) {
             sendFloat(sanitizedName + ".median", StatType.TIMER, snapshot.getMedian());
-            sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
-            sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
         }
-        sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
+        sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
         if (!minimizeMetrics) {
+            sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
+            sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
             sendFloat(sanitizedName + ".99percentile", StatType.TIMER, snapshot.get99thPercentile());
             sendFloat(sanitizedName + ".999percentile", StatType.TIMER, snapshot.get999thPercentile());
         }
