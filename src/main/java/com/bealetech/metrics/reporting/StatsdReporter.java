@@ -52,6 +52,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     protected Writer writer;
     protected ByteArrayOutputStream outputData;
 
+    private String appendTag;
     private boolean prependNewline = false;
     private boolean printVMMetrics = true;
     private boolean shouldTranslateTimersToGauges = false; // Statsd rewrites timers with more info, causing a potential explosion in
@@ -124,6 +125,10 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
 
     public void setShouldTranslateTimersToGauges(boolean shouldTranslateTimersToGauges) {
         this.shouldTranslateTimersToGauges = shouldTranslateTimersToGauges;
+    }
+
+    public void setAppendTag(String tag) {
+        this.appendTag = tag;
     }
 
     public boolean isMinimizeMetrics() {
@@ -364,6 +369,10 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
             writer.write(value);
             writer.write("|");
             writer.write(statTypeStr);
+            if (appendTag != null) {
+                writer.write("|#");
+                writer.write(appendTag);
+            }
             prependNewline = true;
             writer.flush();
 
