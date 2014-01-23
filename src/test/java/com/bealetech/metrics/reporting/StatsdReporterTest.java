@@ -15,7 +15,20 @@
  */
 package com.bealetech.metrics.reporting;
 
-import com.yammer.metrics.core.*;
+import com.yammer.metrics.core.Clock;
+import com.yammer.metrics.core.Counter;
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Histogram;
+import com.yammer.metrics.core.Meter;
+import com.yammer.metrics.core.Metered;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.MetricPredicate;
+import com.yammer.metrics.core.MetricProcessor;
+import com.yammer.metrics.core.MetricsRegistry;
+import com.yammer.metrics.core.Sampling;
+import com.yammer.metrics.core.Summarizable;
+import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.stats.Snapshot;
 import org.junit.Before;
 import org.junit.Test;
@@ -27,13 +40,17 @@ import java.io.ByteArrayOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class StatsdReporterTest {
 
@@ -91,19 +108,39 @@ public class StatsdReporterTest {
                 reporter.setShouldTranslateTimersToGauges(oldTimerTranslationConfig);
             }
 
+            // If the expected lines in the datagram are greater than the max UDP datagram length,
+            // then we need to capture whatever the last fractional datagram is to use for comparison.
+            int charCtr = 0;
+            List<String> lastBucketOfLines = new LinkedList<String>();
+            for (int lineCtr = 0; lineCtr < expected.length; ++lineCtr) {
+                lastBucketOfLines.add(expected[lineCtr]);
+                charCtr += expected[lineCtr].length();
+                charCtr++; // Need to account for the newline in the actual output buffer.
+
+                System.out.println("adding to bucket: " + expected[lineCtr]);
+
+                if (lineCtr < expected.length - 1
+                        && charCtr > StatsdReporter.MAX_UDPDATAGRAM_LENGTH) {
+                    System.out.println("clearing bucket");
+                    lastBucketOfLines.clear();
+                    charCtr = 0;
+                }
+            }
+            String[] expectedLines = lastBucketOfLines.toArray(new String[]{});
+
             String packetData = new String(packet.getData());
             final String[] lines = packetData.split("\r?\n|\r");
             // Assertions: first check that the line count matches then compare line by line ignoring leading and trailing whitespace
-            assertEquals("Line count mismatch, was:\n" + Arrays.toString(lines) + "\nexpected:\n" + Arrays
-                    .toString(expected) + "\n", expected.length,
-                    lines.length);
+            assertEquals("Line count mismatch, was:\n" + Arrays.toString(lines) + "\nexpected:\n" + Arrays.toString(expectedLines) + "\n",
+                         expectedLines.length,
+                         lines.length);
             for (int i = 0; i < lines.length; i++) {
-                if (!expected[i].trim().equals(lines[i].trim())) {
+                if (!expectedLines[i].trim().equals(lines[i].trim())) {
                     System.err.println("Failure comparing line " + (1 + i));
                     System.err.println("Was:      '" + lines[i] + "'");
-                    System.err.println("Expected: '" + expected[i] + "'\n");
+                    System.err.println("Expected: '" + expectedLines[i] + "'\n");
                 }
-                assertEquals(expected[i].trim(), lines[i].trim());
+                assertEquals(expectedLines[i].trim(), lines[i].trim());
             }
         } finally {
             reporter.shutdown();
