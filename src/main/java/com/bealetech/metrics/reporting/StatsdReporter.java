@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 public class StatsdReporter extends AbstractPollingReporter implements MetricProcessor<Long> {
 
-    private static final int MAX_UDPDATAGRAM_LENGTH = 1300; // In reality, usually closer to 1500
+    private static final int MAX_UDPDATAGRAM_LENGTH = 512; // In reality, usually closer to 1500
 
     public static enum StatType { COUNTER, TIMER, GAUGE }
 
