@@ -1,164 +1,259 @@
-/**
- * Copyright (C) 2012-2013 Sean Laurent
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- *   you may not use this file except in compliance with the License.
- *   You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- *   Unless required by applicable law or agreed to in writing, software
- *   distributed under the License is distributed on an "AS IS" BASIS,
- *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *   See the License for the specific language governing permissions and
- *   limitations under the License.
- */
 package com.bealetech.metrics.reporting;
 
-import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.*;
-import com.yammer.metrics.reporting.AbstractPollingReporter;
-import com.yammer.metrics.stats.Snapshot;
+import com.codahale.metrics.Clock;
+import com.codahale.metrics.Counter;
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Meter;
+import com.codahale.metrics.Metered;
+import com.codahale.metrics.MetricFilter;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Sampling;
+import com.codahale.metrics.ScheduledReporter;
+import com.codahale.metrics.Snapshot;
+import com.codahale.metrics.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.TimeUnit;
 
-public class StatsdReporter extends AbstractPollingReporter implements MetricProcessor<Long> {
-
-    protected static final int MAX_UDPDATAGRAM_LENGTH = 512; // In reality, usually closer to 1500
-
-    public static enum StatType { COUNTER, TIMER, GAUGE }
+public class StatsdReporter extends ScheduledReporter {
 
     private static final Logger LOG = LoggerFactory.getLogger(StatsdReporter.class);
 
+    public static enum StatType { COUNTER, TIMER, GAUGE }
+
+    protected static final int MAX_UDPDATAGRAM_LENGTH = 512; // In reality, usually closer to 1500
+
+    /**
+     * Returns a new {@link Builder} for {@link StatsdReporter}.
+     *
+     * @param registry the registry to report
+     * @param hostname The destination hostname for UDP packets
+     * @param port The destination port for UDP packets
+     * @return a {@link Builder} instance for a {@link StatsdReporter}
+     */
+    public static Builder forRegistry(MetricRegistry registry, String hostname, int port) {
+        return new Builder(registry, new DefaultSocketProvider(hostname, port));
+    }
+
+    //For testing
+    public static Builder forRegistry(MetricRegistry registry, UDPSocketProvider udpSocketProvider) {
+        return new Builder(registry, udpSocketProvider);
+    }
+
+    /**
+     * A builder for {@link StatsdReporter} instances. Defaults to using the default locale, converting
+     * rates to events/second, converting durations to milliseconds, and not filtering metrics.
+     */
+    public static class Builder {
+        private final MetricRegistry registry;
+        private final UDPSocketProvider udpSocketProvider;
+        private Locale locale;
+        private TimeUnit rateUnit;
+        private TimeUnit durationUnit;
+        private Clock clock;
+        private MetricFilter filter;
+        private String prefix;
+        private String appendTag;
+        private boolean minimizeMetrics;
+
+        private Builder(MetricRegistry registry, UDPSocketProvider udpSocketProvider) {
+            this.registry = registry;
+            this.udpSocketProvider = udpSocketProvider;
+            this.locale = Locale.getDefault();
+            this.rateUnit = TimeUnit.SECONDS;
+            this.durationUnit = TimeUnit.MILLISECONDS;
+            this.clock = Clock.defaultClock();
+            this.filter = MetricFilter.ALL;
+            this.minimizeMetrics = true;
+        }
+
+        /**
+         * Format numbers for the given {@link Locale}.
+         *
+         * @param locale a {@link Locale}
+         * @return {@code this}
+         */
+        public Builder formatFor(Locale locale) {
+            this.locale = locale;
+            return this;
+        }
+
+        /**
+         * Convert rates to the given time unit.
+         *
+         * @param rateUnit a unit of time
+         * @return {@code this}
+         */
+        public Builder convertRatesTo(TimeUnit rateUnit) {
+            this.rateUnit = rateUnit;
+            return this;
+        }
+
+        /**
+         * Convert durations to the given time unit.
+         *
+         * @param durationUnit a unit of time
+         * @return {@code this}
+         */
+        public Builder convertDurationsTo(TimeUnit durationUnit) {
+            this.durationUnit = durationUnit;
+            return this;
+        }
+
+        /**
+         * Use the given {@link Clock} instance for the time.
+         *
+         * @param clock a {@link Clock} instance
+         * @return {@code this}
+         */
+        public Builder withClock(Clock clock) {
+            this.clock = clock;
+            return this;
+        }
+
+        /**
+         * Only report metrics which match the given filter.
+         *
+         * @param filter a {@link MetricFilter}
+         * @return {@code this}
+         */
+        public Builder withFilter(MetricFilter filter) {
+            this.filter = filter;
+            return this;
+        }
+
+        /**
+         * Add a prefix to all reported metrics
+         *
+         * @param prefix a string prefix to add to all metrics
+         * @return {@code this}
+         */
+        public Builder withPrefix(String prefix) {
+            this.prefix = prefix;
+            return this;
+        }
+
+        /**
+         * Append a datadog tag to each metric
+         *
+         * @param appendTag a string tag to append to all metrics for sending to dogstatsd
+         * @return {@code this}
+         */
+        public Builder withAppendTag(String appendTag) {
+            this.appendTag = appendTag;
+            return this;
+        }
+
+        /**
+         * Minimize the metrics being sent for histograms and timers
+         *
+         * @param minimizeMetrics boolean whether or not to minimize metrics being sent.
+         * @return {@code this}
+         */
+        public Builder withMinimizeMetrics(boolean minimizeMetrics) {
+            this.minimizeMetrics = minimizeMetrics;
+            return this;
+        }
+
+        /**
+         * Builds a {@link StatsdReporter} with the given properties
+         *
+         * @return a {@link StatsdReporter}
+         */
+        public StatsdReporter build() {
+            return new StatsdReporter(registry,
+                                   udpSocketProvider,
+                                   prefix,
+                                   appendTag,
+                                   locale,
+                                   rateUnit,
+                                   durationUnit,
+                                   clock,
+                                   filter,
+                                   minimizeMetrics);
+        }
+    }
+
+
     protected final String prefix;
-    protected final MetricPredicate predicate;
-    protected final Locale locale = Locale.US;
+    private final String appendTag;
+    protected final MetricFilter filter;
+    protected final Locale locale;
     protected final Clock clock;
-
     protected final UDPSocketProvider socketProvider;
+    private final boolean minimizeMetrics;
+
     protected DatagramSocket currentSocket = null;
-
-    protected final VirtualMachineMetrics vm;
-
     protected Writer writer;
     protected ByteArrayOutputStream outputData;
 
-    private String appendTag;
     private boolean prependNewline = false;
-    private boolean printVMMetrics = true;
-    private boolean shouldTranslateTimersToGauges = false; // Statsd rewrites timers with more info, causing a potential explosion in
-                                             // the number of metrics being pushed from statsd to graphite if you have a
-                                             // lot of timers or histograms. See: https://github.com/etsy/statsd/blob/master/docs/metric_types.md#timing
-    private boolean minimizeMetrics = false;  // Yammer metric timers have a LOT of sub-metrics in them. We can trim this down significantly under normal circumstances.
 
-    public interface UDPSocketProvider {
-        DatagramSocket get() throws Exception;
-        DatagramPacket newPacket(ByteArrayOutputStream out);
-    }
-
-    public StatsdReporter(String host, int port) throws IOException {
-        this(Metrics.defaultRegistry(), host, port, null);
-    }
-
-    public StatsdReporter(String host, int port, String prefix) throws IOException {
-        this(Metrics.defaultRegistry(), host, port, prefix);
-    }
-
-    public StatsdReporter(MetricsRegistry metricsRegistry, String host, int port) throws IOException {
-        this(metricsRegistry, host, port, null);
-    }
-
-    public StatsdReporter(MetricsRegistry metricsRegistry, String host, int port, String prefix) throws IOException {
-        this(metricsRegistry,
-             prefix,
-             MetricPredicate.ALL,
-             new DefaultSocketProvider(host, port),
-             Clock.defaultClock());
-    }
-
-    public StatsdReporter(MetricsRegistry metricsRegistry, String prefix, MetricPredicate predicate, UDPSocketProvider socketProvider, Clock clock) throws IOException {
-        this(metricsRegistry, prefix, predicate, socketProvider, clock, VirtualMachineMetrics.getInstance());
-    }
-
-    public StatsdReporter(MetricsRegistry metricsRegistry, String prefix, MetricPredicate predicate, UDPSocketProvider socketProvider, Clock clock, VirtualMachineMetrics vm) throws IOException {
-        this(metricsRegistry, prefix, predicate, socketProvider, clock, vm, "graphite-reporter");
-    }
-
-    public StatsdReporter(MetricsRegistry metricsRegistry, String prefix, MetricPredicate predicate, UDPSocketProvider socketProvider, Clock clock, VirtualMachineMetrics vm, String name) throws IOException {
-        super(metricsRegistry, name);
+    private StatsdReporter(MetricRegistry registry, UDPSocketProvider socketProvider, String prefix, String appendTag, Locale locale, TimeUnit rateUnit, TimeUnit durationUnit, Clock clock, MetricFilter filter, boolean minimizeMetrics) {
+        super(registry, "statsd-reporter", filter, rateUnit, durationUnit);
 
         this.socketProvider = socketProvider;
-        this.vm = vm;
-
-        this.clock = clock;
-
         if (prefix != null) {
             // Pre-append the "." so that we don't need to make anything conditional later.
             this.prefix = prefix + ".";
         } else {
             this.prefix = "";
         }
-        this.predicate = predicate;
-        this.outputData = new ByteArrayOutputStream();
-    }
-
-    public boolean isPrintVMMetrics() {
-        return printVMMetrics;
-    }
-
-    public void setPrintVMMetrics(boolean printVMMetrics) {
-        this.printVMMetrics = printVMMetrics;
-    }
-
-    public boolean isShouldTranslateTimersToGauges() {
-        return shouldTranslateTimersToGauges;
-    }
-
-    public void setShouldTranslateTimersToGauges(boolean shouldTranslateTimersToGauges) {
-        this.shouldTranslateTimersToGauges = shouldTranslateTimersToGauges;
-    }
-
-    public void setAppendTag(String tag) {
-        this.appendTag = tag;
-    }
-
-    public boolean isMinimizeMetrics() {
-        return minimizeMetrics;
-    }
-
-    public void setMinimizeMetrics(boolean minimizeMetrics) {
+        this.appendTag = appendTag;
+        this.locale = locale;
+        this.clock = clock;
+        this.filter = filter;
         this.minimizeMetrics = minimizeMetrics;
+
+        outputData = new ByteArrayOutputStream();
     }
 
     @Override
-    public void run() {
+    public void report(SortedMap<String, Gauge> gauges,
+                       SortedMap<String, Counter> counters,
+                       SortedMap<String, Histogram> histograms,
+                       SortedMap<String, Meter> meters,
+                       SortedMap<String, Timer> timers) {
 
         try {
             currentSocket = this.socketProvider.get();
             resetWriterState();
 
-            final long epoch = clock.time() / 1000;
-            if (printVMMetrics) {
-                printVmMetrics(epoch);
+            for (Map.Entry<String, Gauge> entry : gauges.entrySet()) {
+                processGauge(entry.getKey(), entry.getValue());
             }
-            printRegularMetrics(epoch);
+            for (Map.Entry<String, Counter> entry : counters.entrySet()) {
+                processCounter(entry.getKey(), entry.getValue());
+            }
+            for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+                processHistogram(entry.getKey(), entry.getValue());
+            }
+            for (Map.Entry<String, Meter> entry : meters.entrySet()) {
+                processMeter(entry.getKey(), entry.getValue());
+            }
+            for (Map.Entry<String, Timer> entry : timers.entrySet()) {
+                processTimer(entry.getKey(), entry.getValue());
+            }
 
             // Send UDP data
             sendDatagram();
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Error writing to Graphite", e);
+                LOG.debug("Error writing to statsd", e);
             } else {
-                LOG.warn("Error writing to Graphite: {}", e.getMessage());
+                LOG.warn("Error writing to statsd: {}", e.getMessage());
             }
             if (writer != null) {
                 try {
@@ -184,121 +279,55 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
     private void sendDatagram() throws IOException {
         writer.flush();
         if (outputData.size() > 0) { // Don't send an empty datagram
-            DatagramPacket packet = this.socketProvider.newPacket(outputData);
+            //LOG.info("Sending datagram: {}", outputData.toString());
+            DatagramPacket packet = socketProvider.newPacket(outputData);
             packet.setData(outputData.toByteArray());
             currentSocket.send(packet);
         }
+        resetWriterState();
     }
 
-    protected void printVmMetrics(long epoch) {
-        // Memory
-        sendFloat("jvm.memory.totalInit", StatType.GAUGE, vm.totalInit());
-        sendFloat("jvm.memory.totalUsed", StatType.GAUGE, vm.totalUsed());
-        sendFloat("jvm.memory.totalMax", StatType.GAUGE, vm.totalMax());
-        sendFloat("jvm.memory.totalCommitted", StatType.GAUGE, vm.totalCommitted());
-
-        sendFloat("jvm.memory.heapInit", StatType.GAUGE, vm.heapInit());
-        sendFloat("jvm.memory.heapUsed", StatType.GAUGE, vm.heapUsed());
-        sendFloat("jvm.memory.heapMax", StatType.GAUGE, vm.heapMax());
-        sendFloat("jvm.memory.heapCommitted", StatType.GAUGE, vm.heapCommitted());
-
-        sendFloat("jvm.memory.heapUsage", StatType.GAUGE, vm.heapUsage());
-        sendFloat("jvm.memory.nonHeapUsage", StatType.GAUGE, vm.nonHeapUsage());
-
-        for (Map.Entry<String, Double> pool : vm.memoryPoolUsage().entrySet()) {
-            sendFloat("jvm.memory.memory_pool_usages." + sanitizeString(pool.getKey()), StatType.GAUGE, pool.getValue());
-        }
-
-        // Buffer Pool
-        final Map<String, VirtualMachineMetrics.BufferPoolStats> bufferPoolStats = vm.getBufferPoolStats();
-        if (!bufferPoolStats.isEmpty()) {
-            sendFloat("jvm.buffers.direct.count", StatType.GAUGE, bufferPoolStats.get("direct").getCount());
-            sendFloat("jvm.buffers.direct.memoryUsed", StatType.GAUGE, bufferPoolStats.get("direct").getMemoryUsed());
-            sendFloat("jvm.buffers.direct.totalCapacity", StatType.GAUGE, bufferPoolStats.get("direct").getTotalCapacity());
-
-            sendFloat("jvm.buffers.mapped.count", StatType.GAUGE, bufferPoolStats.get("mapped").getCount());
-            sendFloat("jvm.buffers.mapped.memoryUsed", StatType.GAUGE, bufferPoolStats.get("mapped").getMemoryUsed());
-            sendFloat("jvm.buffers.mapped.totalCapacity", StatType.GAUGE, bufferPoolStats.get("mapped").getTotalCapacity());
-        }
-
-        sendInt("jvm.daemon_thread_count", StatType.GAUGE, vm.daemonThreadCount());
-        sendInt("jvm.thread_count", StatType.GAUGE, vm.threadCount());
-        sendInt("jvm.uptime", StatType.GAUGE, vm.uptime());
-        sendFloat("jvm.fd_usage", StatType.GAUGE, vm.fileDescriptorUsage());
-
-        for (Map.Entry<Thread.State, Double> entry : vm.threadStatePercentages().entrySet()) {
-            sendFloat("jvm.thread-states." + entry.getKey().toString().toLowerCase(), StatType.GAUGE, entry.getValue());
-        }
-
-        for (Map.Entry<String, VirtualMachineMetrics.GarbageCollectorStats> entry : vm.garbageCollectors().entrySet()) {
-            final String name = "jvm.gc." + sanitizeString(entry.getKey());
-            sendInt(name + ".time", StatType.GAUGE, entry.getValue().getTime(TimeUnit.MILLISECONDS));
-            sendInt(name + ".runs", StatType.GAUGE, entry.getValue().getRuns());
-        }
-    }
-
-    protected void printRegularMetrics(long epoch) {
-        for (Map.Entry<String,SortedMap<MetricName,Metric>> entry : getMetricsRegistry().groupedMetrics(predicate).entrySet()) {
-            for (Map.Entry<MetricName, Metric> subEntry : entry.getValue().entrySet()) {
-                final Metric metric = subEntry.getValue();
-                if (metric != null) {
-                    try {
-                        metric.processWith(this, subEntry.getKey(), epoch);
-                    } catch (Exception ignored) {
-                        LOG.error("Error printing regular metrics:", ignored);
-                    }
-                }
-            }
-        }
-    }
-
-    @Override
-    public void processMeter(MetricName name, Metered meter, Long epoch) throws Exception {
-        final String sanitizedName = sanitizeName(name);
-        sendInt(sanitizedName + ".count", StatType.GAUGE, meter.count());
+    public void processMeter(String name, Metered meter) throws Exception {
+        sendInt(name + ".count", StatType.GAUGE, meter.getCount());
         if (!minimizeMetrics) {
-            sendFloat(sanitizedName + ".meanRate", StatType.TIMER, meter.meanRate());
+            sendFloat(name + ".meanRate", StatType.TIMER, meter.getMeanRate());
         }
-        sendFloat(sanitizedName + ".1MinuteRate", StatType.TIMER, meter.oneMinuteRate());
+        sendFloat(name + ".1MinuteRate", StatType.TIMER, meter.getOneMinuteRate());
         if (!minimizeMetrics) {
-            sendFloat(sanitizedName + ".5MinuteRate", StatType.TIMER, meter.fiveMinuteRate());
-            sendFloat(sanitizedName + ".15MinuteRate", StatType.TIMER, meter.fifteenMinuteRate());
+            sendFloat(name + ".5MinuteRate", StatType.TIMER, meter.getFiveMinuteRate());
+            sendFloat(name + ".15MinuteRate", StatType.TIMER, meter.getFifteenMinuteRate());
         }
     }
 
-    @Override
-    public void processCounter(MetricName name, Counter counter, Long epoch) throws Exception {
-        sendInt(sanitizeName(name) + ".count", StatType.GAUGE, counter.count());
+    public void processCounter(String name, Counter counter) throws Exception {
+        sendInt(name + ".count", StatType.GAUGE, counter.getCount());
     }
 
-    @Override
-    public void processHistogram(MetricName name, Histogram histogram, Long epoch) throws Exception {
-        final String sanitizedName = sanitizeName(name);
-        sendSummarizable(sanitizedName, histogram);
-        sendSampling(sanitizedName, histogram);
+    public void processHistogram(String name, Histogram histogram) throws Exception {
+        sendSummarizable(name, histogram);
+        sendSampling(name, histogram);
     }
 
-    @Override
-    public void processTimer(MetricName name, Timer timer, Long epoch) throws Exception {
-        processMeter(name, timer, epoch);
-        final String sanitizedName = sanitizeName(name);
-        sendSummarizable(sanitizedName, timer);
-        sendSampling(sanitizedName, timer);
+    public void processTimer(String name, Timer timer) throws Exception {
+        processMeter(name, timer);
+        sendSummarizable(name, timer);
+        sendSampling(name, timer);
     }
 
-    @Override
-    public void processGauge(MetricName name, Gauge<?> gauge, Long epoch) throws Exception {
-        sendObj(sanitizeName(name) + ".count", StatType.GAUGE, gauge.value());
+    public void processGauge(String name, Gauge<?> gauge) throws Exception {
+        sendObj(name + ".count", StatType.GAUGE, gauge.getValue());
     }
 
-    protected void sendSummarizable(String sanitizedName, Summarizable metric) throws IOException {
+    protected void sendSummarizable(String sanitizedName, Sampling metric) throws IOException {
+        final Snapshot snapshot = metric.getSnapshot();
+
         if (!minimizeMetrics) {
-            sendFloat(sanitizedName + ".min", StatType.TIMER, metric.min());
-            sendFloat(sanitizedName + ".max", StatType.TIMER, metric.max());
+            sendFloat(sanitizedName + ".min", StatType.TIMER, snapshot.getMin());
+            sendFloat(sanitizedName + ".max", StatType.TIMER, snapshot.getMax());
         }
-        sendFloat(sanitizedName + ".mean", StatType.TIMER, metric.mean());
+        sendFloat(sanitizedName + ".mean", StatType.TIMER, snapshot.getMean());
         if (!minimizeMetrics) {
-            sendFloat(sanitizedName + ".stddev", StatType.TIMER, metric.stdDev());
+            sendFloat(sanitizedName + ".stddev", StatType.TIMER, snapshot.getStdDev());
         }
     }
 
@@ -328,19 +357,6 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
         sendData(name, String.format(locale, "%s", value), statType);
     }
 
-    protected String sanitizeName(MetricName name) {
-        final StringBuilder sb = new StringBuilder()
-                .append(name.getGroup())
-                .append('.')
-                .append(name.getType())
-                .append('.');
-        if (name.hasScope()) {
-            sb.append(name.getScope())
-                    .append('.');
-        }
-        return sb.append(name.getName()).toString();
-    }
-
     protected String sanitizeString(String s) {
         return s.replace(' ', '-');
     }
@@ -355,7 +371,7 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
                 statTypeStr = "g";
                 break;
             case TIMER:
-                statTypeStr = shouldTranslateTimersToGauges ? "g" : "ms";
+                statTypeStr = minimizeMetrics ? "g" : "ms";
                 break;
         }
 
@@ -381,44 +397,10 @@ public class StatsdReporter extends AbstractPollingReporter implements MetricPro
             if (outputData.size() > MAX_UDPDATAGRAM_LENGTH) {
                 // Need to send our UDP packet now before it gets too big.
                 sendDatagram();
-                resetWriterState();
             }
         } catch (IOException e) {
             LOG.error("Error sending to Graphite:", e);
         }
     }
 
-    public static class DefaultSocketProvider implements UDPSocketProvider {
-
-        private final String host;
-        private final int port;
-
-        public DefaultSocketProvider(String host, int port) {
-            this.host = host;
-            this.port = port;
-        }
-
-        @Override
-        public DatagramSocket get() throws Exception {
-            return new DatagramSocket();
-        }
-
-        @Override
-        public DatagramPacket newPacket(ByteArrayOutputStream out) {
-            byte[] dataBuffer;
-
-            if (out != null) {
-                dataBuffer = out.toByteArray();
-            }
-            else {
-                dataBuffer = new byte[8192];
-            }
-
-            try {
-                return new DatagramPacket(dataBuffer, dataBuffer.length, InetAddress.getByName(this.host), this.port);
-            } catch (Exception e) {
-                return null;
-            }
-        }
-    }
 }

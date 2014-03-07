@@ -15,391 +15,389 @@
  */
 package com.bealetech.metrics.reporting;
 
-import com.yammer.metrics.core.Clock;
-import com.yammer.metrics.core.Counter;
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.Histogram;
-import com.yammer.metrics.core.Meter;
-import com.yammer.metrics.core.Metered;
-import com.yammer.metrics.core.Metric;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.MetricPredicate;
-import com.yammer.metrics.core.MetricProcessor;
-import com.yammer.metrics.core.MetricsRegistry;
-import com.yammer.metrics.core.Sampling;
-import com.yammer.metrics.core.Summarizable;
-import com.yammer.metrics.core.Timer;
-import com.yammer.metrics.stats.Snapshot;
-import org.junit.Before;
+import com.codahale.metrics.Counter;
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Meter;
+import com.codahale.metrics.MetricFilter;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Snapshot;
+import com.codahale.metrics.Timer;
 import org.junit.Test;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-import org.mockito.stubbing.Stubber;
+import org.mockito.ArgumentCaptor;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class StatsdReporterTest {
 
-    protected final Clock clock = mock(Clock.class);
-    protected StatsdReporter reporter;
-    protected TestMetricsRegistry registry;
-    protected DatagramPacket packet;
+    private static final String TAG = "env:prod,container:10";
 
-    protected static class TestMetricsRegistry extends MetricsRegistry {
-        public <T extends Metric> T add(MetricName name, T metric) {
-            return getOrAdd(name, metric);
-        }
-    }
+    protected DatagramSocket socket;
 
-    @Before
-    public void init() throws Exception {
-        when(clock.tick()).thenReturn(1234L);
-        when(clock.time()).thenReturn(5678L);
-        registry = new TestMetricsRegistry();
-        byte[] data = new byte[65536];
-        packet = new DatagramPacket(data, data.length);
-        reporter = createReporter(registry, clock);
-    }
+    protected StatsdReporter createReporter(boolean minimizeMetrics, String appendTag) throws Exception {
+        final UDPSocketProvider provider = mock(UDPSocketProvider.class);
+        //socket = mock(DatagramSocket.class, withSettings().verboseLogging());
+        socket = mock(DatagramSocket.class);
 
-    protected StatsdReporter createReporter(MetricsRegistry registry, Clock clock) throws Exception {
-        final DatagramSocket socket = mock(DatagramSocket.class);
-        final StatsdReporter.UDPSocketProvider provider = mock(StatsdReporter.UDPSocketProvider.class);
         when(provider.get()).thenReturn(socket);
-        when(provider.newPacket(any(ByteArrayOutputStream.class))).thenReturn(packet);
+        when(provider.newPacket(any(ByteArrayOutputStream.class))).thenReturn(new DatagramPacket(new byte[65536], 65536), new DatagramPacket(new byte[65536], 65536));
 
-        final StatsdReporter reporter = new StatsdReporter(registry,
-                                                           "prefix",
-                                                           MetricPredicate.ALL,
-                                                           provider,
-                                                           clock);
-        reporter.setPrintVMMetrics(false);
-        return reporter;
+        return StatsdReporter.forRegistry(new MetricRegistry(), provider)
+                                                      .withPrefix("prefix")
+                                                      .withFilter(MetricFilter.ALL)
+                                                      .withMinimizeMetrics(minimizeMetrics)
+                                                      .withAppendTag(appendTag)
+                                                      .build();
     }
 
-    protected <T extends Metric> void assertReporterOutput(Callable<T> action, String... expected) throws Exception {
-        assertReporterOutput(action, false, expected);
+    @Test
+    public void reportsGaugeValues() throws Exception {
+        final Gauge gauge = mock(Gauge.class);
+        when(gauge.getValue()).thenReturn(3);
+
+        createReporter(false, null).report(map("mygaugename", gauge),
+                                this.<Counter>map(),
+                                this.<Histogram>map(),
+                                this.<Meter>map(),
+                                this.<Timer>map());
+
+        assertOutput(expectedGaugeResult("3"), 1);
     }
 
-    protected <T extends Metric> void assertReporterOutput(Callable<T> action, boolean shouldTranslateTimersToGauges, String... expected) throws Exception {
-        // Invoke the callable to trigger (ie, mark()/inc()/etc) and return the metric
-        final T metric = action.call();
-        try {
-            // Add the metric to the registry, run the reporter and flush the result
-            registry.add(new MetricName(Object.class, "metric"), metric);
-            boolean oldTimerTranslationConfig = reporter.isShouldTranslateTimersToGauges();
-            try {
-                reporter.setShouldTranslateTimersToGauges(shouldTranslateTimersToGauges);
-                reporter.run();
-            } finally {
-                reporter.setShouldTranslateTimersToGauges(oldTimerTranslationConfig);
-            }
+    @Test
+    public void reportsGaugeValuesMinimized() throws Exception {
+        final Gauge gauge = mock(Gauge.class);
+        when(gauge.getValue()).thenReturn(3);
 
-            // If the expected lines in the datagram are greater than the max UDP datagram length,
-            // then we need to capture whatever the last fractional datagram is to use for comparison.
-            int charCtr = 0;
-            List<String> lastBucketOfLines = new LinkedList<String>();
-            for (int lineCtr = 0; lineCtr < expected.length; ++lineCtr) {
-                lastBucketOfLines.add(expected[lineCtr]);
-                charCtr += expected[lineCtr].length();
-                charCtr++; // Need to account for the newline in the actual output buffer.
+        createReporter(true, TAG).report(map("mygaugename", gauge),
+                                     this.<Counter>map(),
+                                     this.<Histogram>map(),
+                                     this.<Meter>map(),
+                                     this.<Timer>map());
 
-                System.out.println("adding to bucket: " + expected[lineCtr]);
+        assertOutput(expectedGaugeResultMinimizedWithTag("3"), 1);
+    }
 
-                if (lineCtr < expected.length - 1
-                        && charCtr > StatsdReporter.MAX_UDPDATAGRAM_LENGTH) {
-                    System.out.println("clearing bucket");
-                    lastBucketOfLines.clear();
-                    charCtr = 0;
-                }
-            }
-            String[] expectedLines = lastBucketOfLines.toArray(new String[]{});
+    @Test
+    public void reportsCounterValues() throws Exception {
+        final Counter counter = mock(Counter.class);
+        when(counter.getCount()).thenReturn(100L);
 
-            String packetData = new String(packet.getData());
-            final String[] lines = packetData.split("\r?\n|\r");
-            // Assertions: first check that the line count matches then compare line by line ignoring leading and trailing whitespace
-            assertEquals("Line count mismatch, was:\n" + Arrays.toString(lines) + "\nexpected:\n" + Arrays.toString(expectedLines) + "\n",
-                         expectedLines.length,
-                         lines.length);
-            for (int i = 0; i < lines.length; i++) {
-                if (!expectedLines[i].trim().equals(lines[i].trim())) {
-                    System.err.println("Failure comparing line " + (1 + i));
-                    System.err.println("Was:      '" + lines[i] + "'");
-                    System.err.println("Expected: '" + expectedLines[i] + "'\n");
-                }
-                assertEquals(expectedLines[i].trim(), lines[i].trim());
-            }
-        } finally {
-            reporter.shutdown();
+        createReporter(false, null).report(this.<Gauge>map(),
+                                map("test.counter", counter),
+                                this.<Histogram>map(),
+                                this.<Meter>map(),
+                                this.<Timer>map());
+
+        assertOutput(expectedCounterResult(100L), 1);
+    }
+
+    @Test
+    public void reportsCounterValuesMinized() throws Exception {
+        final Counter counter = mock(Counter.class);
+        when(counter.getCount()).thenReturn(100L);
+
+        createReporter(true, TAG).report(this.<Gauge>map(),
+                                           map("test.counter", counter),
+                                           this.<Histogram>map(),
+                                           this.<Meter>map(),
+                                           this.<Timer>map());
+
+        assertOutput(expectedCounterResultMinimizedWithTag(100L), 1);
+    }
+
+    @Test
+    public void reportsHistogramValues() throws Exception {
+        final Histogram histogram = mock(Histogram.class);
+        when(histogram.getCount()).thenReturn(1L);
+
+        final Snapshot snapshot = mock(Snapshot.class);
+        when(snapshot.getMax()).thenReturn(2L);
+        when(snapshot.getMean()).thenReturn(3.0);
+        when(snapshot.getMin()).thenReturn(4L);
+        when(snapshot.getStdDev()).thenReturn(5.0);
+        when(snapshot.getMedian()).thenReturn(6.0);
+        when(snapshot.get75thPercentile()).thenReturn(0.75);
+        when(snapshot.get95thPercentile()).thenReturn(0.95);
+        when(snapshot.get98thPercentile()).thenReturn(0.98);
+        when(snapshot.get99thPercentile()).thenReturn(0.99);
+        when(snapshot.get999thPercentile()).thenReturn(1.00);
+
+        when(histogram.getSnapshot()).thenReturn(snapshot);
+
+        createReporter(false, null).report(this.<Gauge>map(),
+                                this.<Counter>map(),
+                                map("test.histogram", histogram),
+                                this.<Meter>map(),
+                                this.<Timer>map());
+
+        assertOutput(expectedHistogramResult(), 1);
+    }
+
+    @Test
+    public void reportsHistogramValuesMinimized() throws Exception {
+        final Histogram histogram = mock(Histogram.class);
+        when(histogram.getCount()).thenReturn(1L);
+
+        final Snapshot snapshot = mock(Snapshot.class);
+        when(snapshot.getMax()).thenReturn(2L);
+        when(snapshot.getMean()).thenReturn(3.0);
+        when(snapshot.getMin()).thenReturn(4L);
+        when(snapshot.getStdDev()).thenReturn(5.0);
+        when(snapshot.getMedian()).thenReturn(6.0);
+        when(snapshot.get75thPercentile()).thenReturn(0.75);
+        when(snapshot.get95thPercentile()).thenReturn(0.95);
+        when(snapshot.get98thPercentile()).thenReturn(0.98);
+        when(snapshot.get99thPercentile()).thenReturn(0.99);
+        when(snapshot.get999thPercentile()).thenReturn(1.00);
+
+        when(histogram.getSnapshot()).thenReturn(snapshot);
+
+        createReporter(true, TAG).report(this.<Gauge>map(),
+                                           this.<Counter>map(),
+                                           map("test.histogram", histogram),
+                                           this.<Meter>map(),
+                                           this.<Timer>map());
+
+        assertOutput(expectedHistogramResultMinimizedWithTag(), 1);
+    }
+
+    @Test
+    public void reportsMeterValues() throws Exception {
+        final Meter meter = mock(Meter.class);
+        when(meter.getCount()).thenReturn(1L);
+        when(meter.getMeanRate()).thenReturn(2.0);
+        when(meter.getOneMinuteRate()).thenReturn(3.0);
+        when(meter.getFiveMinuteRate()).thenReturn(4.0);
+        when(meter.getFifteenMinuteRate()).thenReturn(5.0);
+
+        createReporter(false, null).report(this.<Gauge>map(),
+                                this.<Counter>map(),
+                                this.<Histogram>map(),
+                                map("test.meter", meter),
+                                this.<Timer>map());
+
+        assertOutput(expectedMeterResult(), 1);
+    }
+
+    @Test
+    public void reportsMeterValuesMinimized() throws Exception {
+        final Meter meter = mock(Meter.class);
+        when(meter.getCount()).thenReturn(1L);
+        when(meter.getMeanRate()).thenReturn(2.0);
+        when(meter.getOneMinuteRate()).thenReturn(3.0);
+        when(meter.getFiveMinuteRate()).thenReturn(4.0);
+        when(meter.getFifteenMinuteRate()).thenReturn(5.0);
+
+        createReporter(true, TAG).report(this.<Gauge>map(),
+                                           this.<Counter>map(),
+                                           this.<Histogram>map(),
+                                           map("test.meter", meter),
+                                           this.<Timer>map());
+
+        assertOutput(expectedMeterResultMinimizedWithTag(), 1);
+    }
+
+    @Test
+    public void reportsTimerValues() throws Exception {
+        final Timer timer = mock(Timer.class);
+        when(timer.getCount()).thenReturn(1L);
+        when(timer.getMeanRate()).thenReturn(2.0);
+        when(timer.getOneMinuteRate()).thenReturn(3.0);
+        when(timer.getFiveMinuteRate()).thenReturn(4.0);
+        when(timer.getFifteenMinuteRate()).thenReturn(5.0);
+
+        final Snapshot snapshot = mock(Snapshot.class);
+        when(snapshot.getMax()).thenReturn(2L);
+        when(snapshot.getMean()).thenReturn(3.0);
+        when(snapshot.getMin()).thenReturn(4L);
+        when(snapshot.getStdDev()).thenReturn(5.0);
+        when(snapshot.getMedian()).thenReturn(6.0);
+        when(snapshot.get75thPercentile()).thenReturn(0.75);
+        when(snapshot.get95thPercentile()).thenReturn(0.95);
+        when(snapshot.get98thPercentile()).thenReturn(0.98);
+        when(snapshot.get99thPercentile()).thenReturn(0.99);
+        when(snapshot.get999thPercentile()).thenReturn(1.00);
+
+        when(timer.getSnapshot()).thenReturn(snapshot);
+
+        createReporter(false, null).report(this.<Gauge>map(),
+                                this.<Counter>map(),
+                                this.<Histogram>map(),
+                                this.<Meter>map(),
+                                map("test.another.timer", timer));
+
+        assertOutput(expectedTimerResult(), 2);
+    }
+
+    @Test
+    public void reportsTimerValuesMinimized() throws Exception {
+        final Timer timer = mock(Timer.class);
+        when(timer.getCount()).thenReturn(1L);
+        when(timer.getMeanRate()).thenReturn(2.0);
+        when(timer.getOneMinuteRate()).thenReturn(3.0);
+        when(timer.getFiveMinuteRate()).thenReturn(4.0);
+        when(timer.getFifteenMinuteRate()).thenReturn(5.0);
+
+        final Snapshot snapshot = mock(Snapshot.class);
+        when(snapshot.getMax()).thenReturn(2L);
+        when(snapshot.getMean()).thenReturn(3.0);
+        when(snapshot.getMin()).thenReturn(4L);
+        when(snapshot.getStdDev()).thenReturn(5.0);
+        when(snapshot.getMedian()).thenReturn(6.0);
+        when(snapshot.get75thPercentile()).thenReturn(0.75);
+        when(snapshot.get95thPercentile()).thenReturn(0.95);
+        when(snapshot.get98thPercentile()).thenReturn(0.98);
+        when(snapshot.get99thPercentile()).thenReturn(0.99);
+        when(snapshot.get999thPercentile()).thenReturn(1.00);
+
+        when(timer.getSnapshot()).thenReturn(snapshot);
+
+        createReporter(true, TAG).report(this.<Gauge>map(),
+                                           this.<Counter>map(),
+                                           this.<Histogram>map(),
+                                           this.<Meter>map(),
+                                           map("test.another.timer", timer));
+
+        assertOutput(expectedTimerResultMinimizedWithTag(), 1);
+    }
+
+    private void assertOutput(String[] expectedLines, int expectedDatagramPackets) throws IOException {
+        ArgumentCaptor<DatagramPacket> packetCaptor = ArgumentCaptor.forClass(DatagramPacket.class);
+        verify(socket, atLeast(1)).send(packetCaptor.capture());
+
+        StringBuilder sb = new StringBuilder();
+        List<DatagramPacket> capturedPackets = packetCaptor.getAllValues();
+        assertEquals("The number of UDP packets actually sent for this reporter run was different than expected.", expectedDatagramPackets, capturedPackets.size());
+        for (DatagramPacket capturedPacket : capturedPackets) {
+            sb.append(new String(capturedPacket.getData()) + "\n");
         }
+
+        String packetData = sb.toString();
+        final String[] actualLines = packetData.split("\r?\n|\r");
+
+        assertEquals("Line count mismatch, was:\n" + Arrays.toString(actualLines) + "\nexpected:\n" + Arrays.toString(expectedLines) + "\n",
+                     expectedLines.length,
+                     actualLines.length);
+        for (int i = 0; i < actualLines.length; i++) {
+            if (!expectedLines[i].trim().equals(actualLines[i].trim())) {
+                System.err.println("Failure comparing line " + (1 + i));
+                System.err.println("Was:      '" + actualLines[i] + "'");
+                System.err.println("Expected: '" + expectedLines[i] + "'\n");
+            }
+            assertEquals(expectedLines[i].trim(), actualLines[i].trim());
+        }
+    }
+
+
+    private <T> SortedMap<String, T> map() {
+        return new TreeMap<String, T>();
+    }
+
+    private <T> SortedMap<String, T> map(String name, T metric) {
+        final TreeMap<String, T> map = new TreeMap<String, T>();
+        map.put(name, metric);
+        return map;
     }
 
     public String[] expectedGaugeResult(String value) {
-        return new String[]{String.format("prefix.java.lang.Object.metric.count:%s|g", value)};
+        return new String[]{String.format("prefix.mygaugename.count:%s|g", value)};
+    }
+
+    public String[] expectedGaugeResultMinimizedWithTag(String value) {
+        return new String[]{String.format("prefix.mygaugename.count:%s|g|#%s", value, TAG)};
     }
 
     public String[] expectedTimerResult() {
         return new String[]{
-                "prefix.java.lang.Object.metric.count:1|g",
-                "prefix.java.lang.Object.metric.meanRate:2.00|ms",
-                "prefix.java.lang.Object.metric.1MinuteRate:1.00|ms",
-                "prefix.java.lang.Object.metric.5MinuteRate:5.00|ms",
-                "prefix.java.lang.Object.metric.15MinuteRate:15.00|ms",
-                "prefix.java.lang.Object.metric.min:1.00|ms",
-                "prefix.java.lang.Object.metric.max:3.00|ms",
-                "prefix.java.lang.Object.metric.mean:2.00|ms",
-                "prefix.java.lang.Object.metric.stddev:1.50|ms",
-                "prefix.java.lang.Object.metric.median:0.50|ms",
-                "prefix.java.lang.Object.metric.75percentile:0.75|ms",
-                "prefix.java.lang.Object.metric.95percentile:0.95|ms",
-                "prefix.java.lang.Object.metric.98percentile:0.98|ms",
-                "prefix.java.lang.Object.metric.99percentile:0.99|ms",
-                "prefix.java.lang.Object.metric.999percentile:1.00|ms"
+                "prefix.test.another.timer.count:1|g",
+                "prefix.test.another.timer.meanRate:2.00|ms",
+                "prefix.test.another.timer.1MinuteRate:3.00|ms",
+                "prefix.test.another.timer.5MinuteRate:4.00|ms",
+                "prefix.test.another.timer.15MinuteRate:5.00|ms",
+                "prefix.test.another.timer.min:4.00|ms",
+                "prefix.test.another.timer.max:2.00|ms",
+                "prefix.test.another.timer.mean:3.00|ms",
+                "prefix.test.another.timer.stddev:5.00|ms",
+                "prefix.test.another.timer.median:6.00|ms",
+                "prefix.test.another.timer.75percentile:0.75|ms",
+                "prefix.test.another.timer.95percentile:0.95|ms",
+                "prefix.test.another.timer.98percentile:0.98|ms",
+                "prefix.test.another.timer.99percentile:0.99|ms",
+                "prefix.test.another.timer.999percentile:1.00|ms"
         };
     }
 
-    public String[] expectedTranslatedTimerResult() {
+    public String[] expectedTimerResultMinimizedWithTag() {
         return new String[]{
-                "prefix.java.lang.Object.metric.count:1|g",
-                "prefix.java.lang.Object.metric.meanRate:2.00|g",
-                "prefix.java.lang.Object.metric.1MinuteRate:1.00|g",
-                "prefix.java.lang.Object.metric.5MinuteRate:5.00|g",
-                "prefix.java.lang.Object.metric.15MinuteRate:15.00|g",
-                "prefix.java.lang.Object.metric.min:1.00|g",
-                "prefix.java.lang.Object.metric.max:3.00|g",
-                "prefix.java.lang.Object.metric.mean:2.00|g",
-                "prefix.java.lang.Object.metric.stddev:1.50|g",
-                "prefix.java.lang.Object.metric.median:0.50|g",
-                "prefix.java.lang.Object.metric.75percentile:0.75|g",
-                "prefix.java.lang.Object.metric.95percentile:0.95|g",
-                "prefix.java.lang.Object.metric.98percentile:0.98|g",
-                "prefix.java.lang.Object.metric.99percentile:0.99|g",
-                "prefix.java.lang.Object.metric.999percentile:1.00|g"
+                "prefix.test.another.timer.count:1|g|#" + TAG,
+                "prefix.test.another.timer.1MinuteRate:3.00|g|#" + TAG,
+                "prefix.test.another.timer.mean:3.00|g|#" + TAG
         };
     }
 
     public String[] expectedMeterResult() {
         return new String[]{
-                "prefix.java.lang.Object.metric.count:1|g",
-                "prefix.java.lang.Object.metric.meanRate:2.00|ms",
-                "prefix.java.lang.Object.metric.1MinuteRate:1.00|ms",
-                "prefix.java.lang.Object.metric.5MinuteRate:5.00|ms",
-                "prefix.java.lang.Object.metric.15MinuteRate:15.00|ms",
+                "prefix.test.meter.count:1|g",
+                "prefix.test.meter.meanRate:2.00|ms",
+                "prefix.test.meter.1MinuteRate:3.00|ms",
+                "prefix.test.meter.5MinuteRate:4.00|ms",
+                "prefix.test.meter.15MinuteRate:5.00|ms"
+        };
+    }
+
+    public String[] expectedMeterResultMinimizedWithTag() {
+        return new String[]{
+                "prefix.test.meter.count:1|g|#" + TAG,
+                "prefix.test.meter.1MinuteRate:3.00|g|#" + TAG
         };
     }
 
     public String[] expectedHistogramResult() {
         return new String[]{
-                "prefix.java.lang.Object.metric.min:1.00|ms",
-                "prefix.java.lang.Object.metric.max:3.00|ms",
-                "prefix.java.lang.Object.metric.mean:2.00|ms",
-                "prefix.java.lang.Object.metric.stddev:1.50|ms",
-                "prefix.java.lang.Object.metric.median:0.50|ms",
-                "prefix.java.lang.Object.metric.75percentile:0.75|ms",
-                "prefix.java.lang.Object.metric.95percentile:0.95|ms",
-                "prefix.java.lang.Object.metric.98percentile:0.98|ms",
-                "prefix.java.lang.Object.metric.99percentile:0.99|ms",
-                "prefix.java.lang.Object.metric.999percentile:1.00|ms"
+                "prefix.test.histogram.min:4.00|ms",
+                "prefix.test.histogram.max:2.00|ms",
+                "prefix.test.histogram.mean:3.00|ms",
+                "prefix.test.histogram.stddev:5.00|ms",
+                "prefix.test.histogram.median:6.00|ms",
+                "prefix.test.histogram.75percentile:0.75|ms",
+                "prefix.test.histogram.95percentile:0.95|ms",
+                "prefix.test.histogram.98percentile:0.98|ms",
+                "prefix.test.histogram.99percentile:0.99|ms",
+                "prefix.test.histogram.999percentile:1.00|ms"
+        };
+    }
+
+    public String[] expectedHistogramResultMinimizedWithTag() {
+        return new String[]{
+                "prefix.test.histogram.mean:3.00|g|#" + TAG
         };
     }
 
     public String[] expectedCounterResult(long count) {
         return new String[]{
-                String.format("prefix.java.lang.Object.metric.count:%d|g", count)
+                String.format("prefix.test.counter.count:%d|g", count)
         };
     }
 
-    @Test
-    public final void counter() throws Exception {
-        final long count = new Random().nextInt(Integer.MAX_VALUE);
-        assertReporterOutput(
-                new Callable<Counter>() {
-                    @Override
-                    public Counter call() throws Exception {
-                        return createCounter(count);
-                    }
-                },
-                expectedCounterResult(count));
+    public String[] expectedCounterResultMinimizedWithTag(long count) {
+        return new String[]{
+                String.format("prefix.test.counter.count:%d|g|#%s", count, TAG)
+        };
     }
 
-    @Test
-    public final void histogram() throws Exception {
-        assertReporterOutput(
-                new Callable<Histogram>() {
-                    @Override
-                    public Histogram call() throws Exception {
-                        return createHistogram();
-                    }
-                },
-                expectedHistogramResult());
-    }
-
-    @Test
-    public final void meter() throws Exception {
-        assertReporterOutput(
-                new Callable<Meter>() {
-                    @Override
-                    public Meter call() throws Exception {
-                        return createMeter();
-                    }
-                },
-                expectedMeterResult());
-    }
-
-    @Test
-    public final void timer() throws Exception {
-        assertReporterOutput(
-                new Callable<Timer>() {
-                    @Override
-                    public Timer call() throws Exception {
-                        return createTimer();
-                    }
-                },
-                expectedTimerResult());
-    }
-
-    @Test
-    public final void gauge() throws Exception {
-        final String value = "gaugeValue";
-        assertReporterOutput(
-                new Callable<Gauge<String>>() {
-                    @Override
-                    public Gauge<String> call() throws Exception {
-                        return createGauge();
-                    }
-                },
-                expectedGaugeResult(value));
-    }
-
-    @Test
-    public final void timerWithTranslatedOutput() throws Exception {
-        assertReporterOutput(
-                new Callable<Timer>() {
-                    @Override
-                    public Timer call() throws Exception {
-                        return createTimer();
-                    }
-                },
-                true,
-                expectedTranslatedTimerResult());
-    }
-
-    static Counter createCounter(long count) throws Exception {
-        final Counter mock = mock(Counter.class);
-        when(mock.count()).thenReturn(count);
-        return configureMatcher(mock, doAnswer(new MetricsProcessorAction() {
-            @Override
-            void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception {
-                processor.processCounter(name, mock, context);
-            }
-        }));
-    }
-
-    static Histogram createHistogram() throws Exception {
-        final Histogram mock = mock(Histogram.class);
-        setupSummarizableMock(mock);
-        setupSamplingMock(mock);
-        return configureMatcher(mock, doAnswer(new MetricsProcessorAction() {
-            @Override
-            void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception {
-                processor.processHistogram(name, mock, context);
-            }
-        }));
-    }
-
-
-    static Gauge<String> createGauge() throws Exception {
-        @SuppressWarnings("unchecked")
-        final Gauge<String> mock = mock(Gauge.class);
-        when(mock.value()).thenReturn("gaugeValue");
-        return configureMatcher(mock, doAnswer(new MetricsProcessorAction() {
-            @Override
-            void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception {
-                processor.processGauge(name, mock, context);
-            }
-        }));
-    }
-
-
-    static Timer createTimer() throws Exception {
-        final Timer mock = mock(Timer.class);
-        when(mock.durationUnit()).thenReturn(TimeUnit.MILLISECONDS);
-        setupSummarizableMock(mock);
-        setupMeteredMock(mock);
-        setupSamplingMock(mock);
-        return configureMatcher(mock, doAnswer(new MetricsProcessorAction() {
-            @Override
-            void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception {
-                processor.processTimer(name, mock, context);
-            }
-        }));
-    }
-
-    static Meter createMeter() throws Exception {
-        final Meter mock = mock(Meter.class);
-        setupMeteredMock(mock);
-        return configureMatcher(mock, doAnswer(new MetricsProcessorAction() {
-            @Override
-            void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception {
-                processor.processMeter(name, mock, context);
-            }
-        }));
-    }
-
-    @SuppressWarnings("unchecked")
-    static <T extends Metric> T configureMatcher(T mock, Stubber stub) throws Exception {
-        stub.when(mock).processWith(any(MetricProcessor.class), any(MetricName.class), any());
-        return mock;
-    }
-
-    static abstract class MetricsProcessorAction implements Answer<Object> {
-        @Override
-        public Object answer(InvocationOnMock invocation) throws Throwable {
-            @SuppressWarnings("unchecked")
-            final MetricProcessor<Object> processor = (MetricProcessor<Object>) invocation.getArguments()[0];
-            final MetricName name = (MetricName) invocation.getArguments()[1];
-            final Object context = invocation.getArguments()[2];
-            delegateToProcessor(processor, name, context);
-            return null;
-        }
-
-        abstract void delegateToProcessor(MetricProcessor<Object> processor, MetricName name, Object context) throws Exception;
-    }
-
-    static void setupSummarizableMock(Summarizable summarizable) {
-        when(summarizable.min()).thenReturn(1d);
-        when(summarizable.max()).thenReturn(3d);
-        when(summarizable.mean()).thenReturn(2d);
-        when(summarizable.stdDev()).thenReturn(1.5d);
-    }
-
-    static void setupMeteredMock(Metered metered) {
-        when(metered.count()).thenReturn(1L);
-        when(metered.oneMinuteRate()).thenReturn(1d);
-        when(metered.fiveMinuteRate()).thenReturn(5d);
-        when(metered.fifteenMinuteRate()).thenReturn(15d);
-        when(metered.meanRate()).thenReturn(2d);
-        when(metered.eventType()).thenReturn("eventType");
-        when(metered.rateUnit()).thenReturn(TimeUnit.SECONDS);
-    }
-
-    static void setupSamplingMock(Sampling sampling) {
-        final double[] values = new double[1000];
-        for (int i = 0; i < values.length; i++) {
-            values[i] = i / 1000.0;
-        }
-        when(sampling.getSnapshot()).thenReturn(new Snapshot(values));
-    }}
+}

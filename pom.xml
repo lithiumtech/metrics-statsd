@@ -5,13 +5,13 @@
     <groupId>com.bealetech</groupId>
     <artifactId>metrics-statsd</artifactId>
     <name>Metrics Statsd Support</name>
-    <version>2.3.1-li-13-SNAPSHOT</version>
+    <version>3.0.1-li-1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <url>http://github.com/lithiumtech/metrics-statsd/</url>
     <description>Statsd reporter for codahale/metrics.</description>
 
     <properties>
-        <metrics.version>2.1.3</metrics.version>
+        <metrics.version>3.0.1</metrics.version>
         <slf4j.version>1.6.4</slf4j.version>
     </properties>
 
@@ -20,6 +20,11 @@
             <name>Sean Laurent</name>
             <email>organicveggie@gmail.com</email>
             <timezone>-8</timezone>
+        </developer>
+        <developer>
+            <name>Matthew Bogner</name>
+            <email>matthew.bogner@lithium.com</email>
+            <timezone>-6</timezone>
         </developer>
     </developers>
 
@@ -70,7 +75,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.yammer.metrics</groupId>
+            <groupId>com.codahale.metrics</groupId>
             <artifactId>metrics-core</artifactId>
             <version>${metrics.version}</version>
             <type>jar</type>
@@ -87,13 +92,13 @@
             <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>com.yammer.metrics</groupId>
-            <artifactId>metrics-core</artifactId>
-            <version>${metrics.version}</version>
-            <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
+        <!--<dependency>-->
+            <!--<groupId>com.codahale.metrics</groupId>-->
+            <!--<artifactId>metrics-core</artifactId>-->
+            <!--<version>${metrics.version}</version>-->
+            <!--<type>test-jar</type>-->
+            <!--<scope>test</scope>-->
+        <!--</dependency>-->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit-dep</artifactId>
