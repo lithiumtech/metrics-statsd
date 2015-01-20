@@ -2,8 +2,8 @@ package com.lithium.dog.event;
 
 import com.bealetech.metrics.reporting.DefaultSocketProvider;
 import com.bealetech.metrics.reporting.UDPSocketProvider;
-import com.sun.istack.internal.Nullable;
 
+import javax.annotation.Nullable;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.util.Arrays;
