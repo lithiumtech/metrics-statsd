@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 
 /**
 * Created by matthew.bogner on 3/6/14.
@@ -25,19 +26,19 @@ public class DefaultSocketProvider implements UDPSocketProvider {
 
     @Override
     public DatagramPacket newPacket(ByteArrayOutputStream out) {
-        byte[] dataBuffer;
-
-        if (out != null) {
-            dataBuffer = out.toByteArray();
-        }
-        else {
-            dataBuffer = new byte[8192];
-        }
-
         try {
-            return new DatagramPacket(dataBuffer, dataBuffer.length, InetAddress.getByName(this.host), this.port);
+            if (out != null) {
+                return newPacket(out.toByteArray());
+            } else {
+                return newPacket(new byte[8192]);
+            }
         } catch (Exception e) {
             return null;
         }
+    }
+
+    @Override
+     public DatagramPacket newPacket(byte[] out) throws UnknownHostException {
+        return new DatagramPacket(out, out.length, InetAddress.getByName(this.host), this.port);
     }
 }
