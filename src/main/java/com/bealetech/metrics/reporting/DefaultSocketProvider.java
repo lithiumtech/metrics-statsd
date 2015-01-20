@@ -6,9 +6,6 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
-/**
-* Created by matthew.bogner on 3/6/14.
-*/
 public class DefaultSocketProvider implements UDPSocketProvider {
 
     private final String host;

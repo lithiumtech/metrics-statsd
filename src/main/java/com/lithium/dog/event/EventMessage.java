@@ -1,5 +1,7 @@
 package com.lithium.dog.event;
 
+
+import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -10,17 +12,18 @@ import java.util.Set;
  */
 public class EventMessage {
 
-    private final String title, message, aggregationKey;
-    private final Priority priority;
-    private final AlertType alertType;
+    private final String title, message;
+    private final @Nullable String aggregationKey;
+    private final @Nullable Priority priority;
+    private final @Nullable AlertType alertType;
     private final Set<String> tags;
 
     public EventMessage(String title,
                         String message,
-                        String aggregationKey,
-                        Priority priority,
-                        AlertType alertType,
-                        Collection<String> tags) {
+                        @Nullable String aggregationKey,
+                        @Nullable Priority priority,
+                        @Nullable AlertType alertType,
+                        @Nullable Collection<String> tags) {
         this.title = title;
         this.message = message;
         this.aggregationKey = aggregationKey;

@@ -2,6 +2,7 @@ package com.lithium.dog.event;
 
 import com.bealetech.metrics.reporting.DefaultSocketProvider;
 import com.bealetech.metrics.reporting.UDPSocketProvider;
+import com.sun.istack.internal.Nullable;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -27,7 +28,7 @@ public class DataDogEventClient {
         this.errorHandler = errorHandler;
     }
 
-    public EventMessage sendEvent(String title, String message, String... tags) {
+    public EventMessage sendEvent(String title, String message, @Nullable String... tags) {
         return sendEvent(title, message, null, null, null, tags);
     }
 
@@ -36,10 +37,10 @@ public class DataDogEventClient {
      */
     public EventMessage sendEvent(String title,
                           String message,
-                          String aggregationKey,
-                          Priority priority,
-                          AlertType alterType,
-                          String... tags) {
+                          @Nullable String aggregationKey,
+                          @Nullable Priority priority,
+                          @Nullable AlertType alterType,
+                          @Nullable String... tags) {
 
         final Set<String> combinedTags = (tags == null) ? new LinkedHashSet<String>() : new LinkedHashSet<>(Arrays.asList(tags));
         if (constantTags != null) {
