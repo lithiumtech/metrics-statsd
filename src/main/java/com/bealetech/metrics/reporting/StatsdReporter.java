@@ -67,6 +67,7 @@ public class StatsdReporter extends ScheduledReporter {
         private String prefix;
         private String appendTag;
         private boolean minimizeMetrics;
+        private boolean send98thPercentile;
 
         private Builder(MetricRegistry registry, UDPSocketProvider udpSocketProvider) {
             this.registry = registry;
@@ -77,6 +78,7 @@ public class StatsdReporter extends ScheduledReporter {
             this.clock = Clock.defaultClock();
             this.filter = MetricFilter.ALL;
             this.minimizeMetrics = true;
+            this.send98thPercentile = false;
         }
 
         /**
@@ -168,6 +170,17 @@ public class StatsdReporter extends ScheduledReporter {
         }
 
         /**
+         * Should the 98th percentile metric be sent?
+         *
+         * @param send98thPercentile boolean whether or not to send the 98th percentile metric.
+         * @return {@code this}
+         */
+        public Builder withSend98thPercentile(boolean send98thPercentile) {
+            this.send98thPercentile = send98thPercentile;
+            return this;
+        }
+
+        /**
          * Builds a {@link StatsdReporter} with the given properties
          *
          * @return a {@link StatsdReporter}
@@ -182,7 +195,8 @@ public class StatsdReporter extends ScheduledReporter {
                                    durationUnit,
                                    clock,
                                    filter,
-                                   minimizeMetrics);
+                                   minimizeMetrics,
+                                   send98thPercentile);
         }
     }
 
@@ -194,6 +208,7 @@ public class StatsdReporter extends ScheduledReporter {
     protected final Clock clock;
     protected final UDPSocketProvider socketProvider;
     private final boolean minimizeMetrics;
+    private final boolean send98thPercentile;
 
     protected DatagramSocket currentSocket = null;
     protected Writer writer;
@@ -201,7 +216,17 @@ public class StatsdReporter extends ScheduledReporter {
 
     private boolean prependNewline = false;
 
-    private StatsdReporter(MetricRegistry registry, UDPSocketProvider socketProvider, String prefix, String appendTag, Locale locale, TimeUnit rateUnit, TimeUnit durationUnit, Clock clock, MetricFilter filter, boolean minimizeMetrics) {
+    private StatsdReporter(MetricRegistry registry,
+                           UDPSocketProvider socketProvider,
+                           String prefix,
+                           String appendTag,
+                           Locale locale,
+                           TimeUnit rateUnit,
+                           TimeUnit durationUnit,
+                           Clock clock,
+                           MetricFilter filter,
+                           boolean minimizeMetrics,
+                           boolean send98thPercentile) {
         super(registry, "statsd-reporter", filter, rateUnit, durationUnit);
 
         this.socketProvider = socketProvider;
@@ -216,6 +241,7 @@ public class StatsdReporter extends ScheduledReporter {
         this.clock = clock;
         this.filter = filter;
         this.minimizeMetrics = minimizeMetrics;
+        this.send98thPercentile = send98thPercentile;
 
         outputData = new ByteArrayOutputStream();
     }
@@ -332,16 +358,22 @@ public class StatsdReporter extends ScheduledReporter {
     }
 
     protected void sendSampling(String sanitizedName, Sampling metric) throws IOException {
-        if (minimizeMetrics) {
+        if (minimizeMetrics && !send98thPercentile) {
             return;
         }
+
         final Snapshot snapshot = metric.getSnapshot();
-        sendFloat(sanitizedName + ".median", StatType.TIMER, snapshot.getMedian());
-        sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
-        sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
-        sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
-        sendFloat(sanitizedName + ".99percentile", StatType.TIMER, snapshot.get99thPercentile());
-        sendFloat(sanitizedName + ".999percentile", StatType.TIMER, snapshot.get999thPercentile());
+        if (minimizeMetrics) {
+            sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
+        } else {
+            sendFloat(sanitizedName + ".median", StatType.TIMER, snapshot.getMedian());
+            sendFloat(sanitizedName + ".75percentile", StatType.TIMER, snapshot.get75thPercentile());
+            sendFloat(sanitizedName + ".95percentile", StatType.TIMER, snapshot.get95thPercentile());
+            sendFloat(sanitizedName + ".98percentile", StatType.TIMER, snapshot.get98thPercentile());
+            sendFloat(sanitizedName + ".99percentile", StatType.TIMER, snapshot.get99thPercentile());
+            sendFloat(sanitizedName + ".999percentile", StatType.TIMER, snapshot.get999thPercentile());
+        }
+
     }
 
 
@@ -361,7 +393,20 @@ public class StatsdReporter extends ScheduledReporter {
         return s.replace(' ', '-');
     }
 
+    private boolean isNumeric(String str){
+        try {
+            double ignore = Double.parseDouble(str);
+        } catch(NumberFormatException nfe) {
+            return false;
+        }
+        return true;
+    }
+
     protected void sendData(String name, String value, StatType statType) {
+        if (!isNumeric(value)) {
+            return;
+        }
+
         String statTypeStr = "";
         switch (statType) {
             case COUNTER:
