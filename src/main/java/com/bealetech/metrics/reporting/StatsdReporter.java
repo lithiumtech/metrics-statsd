@@ -341,7 +341,12 @@ public class StatsdReporter extends ScheduledReporter {
     }
 
     public void processGauge(String name, Gauge<?> gauge) throws Exception {
-        sendObj(name + ".count", StatType.GAUGE, gauge.getValue());
+        //unfortunately the weakly typed Gauge can send some values that will break our statsd impl
+        if (gauge.getValue() instanceof Number) {
+            sendObj(name + ".count", StatType.GAUGE, gauge.getValue());
+        } else {
+            LOG.warn("Ignoring non numeric gauge " + name);
+        }
     }
 
     protected void sendSummarizable(String sanitizedName, Sampling metric) throws IOException {

@@ -31,7 +31,9 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -74,6 +76,26 @@ public class StatsdReporterTest {
                                 this.<Histogram>map(),
                                 this.<Meter>map(),
                                 this.<Timer>map());
+
+        assertOutput(expectedGaugeResult("3"), 1);
+    }
+
+    @Test
+    public void ignoreNonNumberGuageValue() throws Exception {
+        final Gauge gaugeBad = mock(Gauge.class);
+        when(gaugeBad.getValue()).thenReturn(Collections.EMPTY_LIST);
+        final Gauge goodGuage = mock(Gauge.class);
+        when(goodGuage.getValue()).thenReturn(3);
+
+        final SortedMap<String, Gauge> gaugeMap = new TreeMap<>();
+        gaugeMap.put("mygaugename", goodGuage);
+        gaugeMap.put("badgaugename", gaugeBad);
+
+        createReporter(false, null).report(gaugeMap,
+                                                                     this.<Counter>map(),
+                                                                     this.<Histogram>map(),
+                                                                     this.<Meter>map(),
+                                                                     this.<Timer>map());
 
         assertOutput(expectedGaugeResult("3"), 1);
     }
