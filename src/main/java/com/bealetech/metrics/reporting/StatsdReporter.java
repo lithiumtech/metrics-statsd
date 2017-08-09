@@ -345,7 +345,7 @@ public class StatsdReporter extends ScheduledReporter {
         if (gauge.getValue() instanceof Number) {
             sendObj(name + ".count", StatType.GAUGE, gauge.getValue());
         } else {
-            LOG.warn("Ignoring non numeric gauge " + name);
+            LOG.debug("Ignoring non numeric gauge " + name);
         }
     }
 

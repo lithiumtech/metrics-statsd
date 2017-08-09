@@ -92,10 +92,10 @@ public class StatsdReporterTest {
         gaugeMap.put("badgaugename", gaugeBad);
 
         createReporter(false, null).report(gaugeMap,
-                                                                     this.<Counter>map(),
-                                                                     this.<Histogram>map(),
-                                                                     this.<Meter>map(),
-                                                                     this.<Timer>map());
+                                           this.<Counter>map(),
+                                           this.<Histogram>map(),
+                                           this.<Meter>map(),
+                                           this.<Timer>map());
 
         assertOutput(expectedGaugeResult("3"), 1);
     }
