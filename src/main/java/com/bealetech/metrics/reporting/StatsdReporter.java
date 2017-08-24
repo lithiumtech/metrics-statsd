@@ -279,7 +279,7 @@ public class StatsdReporter extends ScheduledReporter {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Error writing to statsd", e);
             } else {
-                LOG.warn("Error writing to statsd: {}", e.getMessage());
+                LOG.warn("Error writing to statsd: {0}", e.getMessage());
             }
             if (writer != null) {
                 try {
