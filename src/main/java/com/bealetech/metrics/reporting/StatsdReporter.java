@@ -408,6 +408,19 @@ public class StatsdReporter extends ScheduledReporter {
     }
 
     protected void sendData(String name, String value, StatType statType) {
+        sendDataWithTags(name, value, statType, null);
+    }
+
+    /**
+     * Send metric data with per-metric tags (in addition to global appendTag).
+     * Properly formats tags in DogStatsD format: metric:value|type|#tag1:value1,tag2:value2
+     *
+     * @param name Metric name
+     * @param value Metric value
+     * @param statType Stat type (COUNTER, GAUGE, TIMER)
+     * @param perMetricTags Tags for this specific metric (comma-separated, e.g., "company:nike,env:qa")
+     */
+    protected void sendDataWithTags(String name, String value, StatType statType, String perMetricTags) {
         if (!isNumeric(value)) {
             return;
         }
@@ -437,10 +450,24 @@ public class StatsdReporter extends ScheduledReporter {
             writer.write(value);
             writer.write("|");
             writer.write(statTypeStr);
-            if (appendTag != null) {
+
+            // Combine per-metric tags with global appendTag
+            // Format: |#per-metric-tags,global-tags
+            if (perMetricTags != null && !perMetricTags.isEmpty()) {
+                writer.write("|#");
+                writer.write(perMetricTags);
+
+                // Append global tags if configured
+                if (appendTag != null && !appendTag.isEmpty()) {
+                    writer.write(",");
+                    writer.write(appendTag);
+                }
+            } else if (appendTag != null) {
+                // Only global tags
                 writer.write("|#");
                 writer.write(appendTag);
             }
+
             prependNewline = true;
             writer.flush();
 
@@ -451,6 +478,25 @@ public class StatsdReporter extends ScheduledReporter {
         } catch (IOException e) {
             LOG.error("Error sending to Graphite:", e);
         }
+    }
+
+    /**
+     * Public method to allow external code to send metrics with tags.
+     * Used by ic-backend TaggedMetrics wrapper for per-metric tag support.
+     *
+     * @param name Metric name (without tags)
+     * @param value Metric value
+     * @param tags Comma-separated tags (e.g., "company:nike,env:qa")
+     */
+    public void sendMetricWithTags(String name, long value, String tags) {
+        sendDataWithTags(name, String.valueOf(value), StatType.COUNTER, tags);
+    }
+
+    /**
+     * Public method to send timer metric with tags.
+     */
+    public void sendTimerWithTags(String name, long durationMs, String tags) {
+        sendDataWithTags(name, String.valueOf(durationMs), StatType.TIMER, tags);
     }
 
 }
