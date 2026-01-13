@@ -5,7 +5,7 @@
     <groupId>com.bealetech</groupId>
     <artifactId>metrics-statsd</artifactId>
     <name>Metrics Statsd Support</name>
-    <version>3.0.1-li-11-SNAPSHOT</version>
+    <version>3.0.1-li-11</version>
     <packaging>jar</packaging>
     <url>http://github.com/lithiumtech/metrics-statsd/</url>
     <description>Statsd reporter for codahale/metrics.</description>
@@ -44,7 +44,7 @@
         <connection>scm:git:git://github.com/lithiumtech/metrics-statsd.git</connection>
         <developerConnection>scm:git:git@github.com:lithiumtech/metrics-statsd.git</developerConnection>
         <url>http://github.com/lithiumtech/metrics-statsd/</url>
-        <tag>v3.0.1-li-7</tag>
+        <tag>v3.0.1-li-11</tag>
     </scm>
 
     <issueManagement>
