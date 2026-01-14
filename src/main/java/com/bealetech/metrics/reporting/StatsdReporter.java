@@ -482,21 +482,45 @@ public class StatsdReporter extends ScheduledReporter {
 
     /**
      * Public method to allow external code to send metrics with tags.
-     * Used by ic-backend TaggedMetrics wrapper for per-metric tag support.
+     * Thread-safe: can be called outside the scheduled report() cycle.
      *
      * @param name Metric name (without tags)
      * @param value Metric value
      * @param tags Comma-separated tags (e.g., "company:nike,env:qa")
      */
-    public void sendMetricWithTags(String name, long value, String tags) {
-        sendDataWithTags(name, String.valueOf(value), StatType.COUNTER, tags);
+    public synchronized void sendMetricWithTags(String name, long value, String tags) {
+        try {
+            // Ensure writer is initialized (might be null outside report() cycle)
+            if (writer == null || currentSocket == null) {
+                currentSocket = this.socketProvider.get();
+                resetWriterState();
+            }
+
+            sendDataWithTags(name, String.valueOf(value), StatType.COUNTER, tags);
+
+            // Send immediately (don't wait for scheduled report)
+            sendDatagram();
+        } catch (Exception e) {
+            LOG.error("Error sending tagged metric: " + name, e);
+        }
     }
 
     /**
      * Public method to send timer metric with tags.
+     * Thread-safe: can be called outside the scheduled report() cycle.
      */
-    public void sendTimerWithTags(String name, long durationMs, String tags) {
-        sendDataWithTags(name, String.valueOf(durationMs), StatType.TIMER, tags);
+    public synchronized void sendTimerWithTags(String name, long durationMs, String tags) {
+        try {
+            if (writer == null || currentSocket == null) {
+                currentSocket = this.socketProvider.get();
+                resetWriterState();
+            }
+
+            sendDataWithTags(name, String.valueOf(durationMs), StatType.TIMER, tags);
+            sendDatagram();
+        } catch (Exception e) {
+            LOG.error("Error sending tagged timer: " + name, e);
+        }
     }
 
 }
