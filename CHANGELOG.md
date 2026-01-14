@@ -1,5 +1,12 @@
 # Change Log
 
+## [v3.0.1-li-12](https://github.com/lithiumtech/metrics-statsd/tree/v3.0.1-li-12) (2026-01-14)
+[Full Changelog](https://github.com/lithiumtech/metrics-statsd/compare/v3.0.1-li-11...v3.0.1-li-12)
+
+**Merged pull requests:**
+
+- Update: Make sendMetricWithTags thread-safe. [\#7](https://github.com/lithiumtech/metrics-statsd/pull/7) ([Hussain-7](https://github.com/Hussain-7))
+
 ## [v3.0.1-li-11](https://github.com/lithiumtech/metrics-statsd/tree/v3.0.1-li-11) (2026-01-13)
 [Full Changelog](https://github.com/lithiumtech/metrics-statsd/compare/v3.0.1-li-10...v3.0.1-li-11)
 
