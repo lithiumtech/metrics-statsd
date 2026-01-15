@@ -1,5 +1,12 @@
 # Change Log
 
+## [v3.0.1-li-13](https://github.com/lithiumtech/metrics-statsd/tree/v3.0.1-li-13) (2026-01-15)
+[Full Changelog](https://github.com/lithiumtech/metrics-statsd/compare/v3.0.1-li-12...v3.0.1-li-13)
+
+**Merged pull requests:**
+
+- Feat: Simplified tag handling [\#8](https://github.com/lithiumtech/metrics-statsd/pull/8) ([Hussain-7](https://github.com/Hussain-7))
+
 ## [v3.0.1-li-12](https://github.com/lithiumtech/metrics-statsd/tree/v3.0.1-li-12) (2026-01-14)
 [Full Changelog](https://github.com/lithiumtech/metrics-statsd/compare/v3.0.1-li-11...v3.0.1-li-12)
 
