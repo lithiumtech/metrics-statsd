@@ -412,6 +412,21 @@ public class StatsdReporter extends ScheduledReporter {
             return;
         }
 
+        // Extract tags from metric name if present (format: baseName[tag1:value1,tag2:value2].suffix)
+        // Tags may appear in the middle of the name (e.g., "metric[tag:value].count")
+        String baseName = name;
+        String extractedTags = null;
+
+        int tagStart = name.indexOf('[');
+        int tagEnd = name.indexOf(']');
+        if (tagStart > 0 && tagEnd > tagStart) {
+            // Extract base name (everything before '[') + suffix (everything after ']')
+            String prefix = name.substring(0, tagStart);
+            String suffix = name.substring(tagEnd + 1);
+            baseName = prefix + suffix;
+            extractedTags = name.substring(tagStart + 1, tagEnd);
+        }
+
         String statTypeStr = "";
         switch (statType) {
             case COUNTER:
@@ -432,15 +447,26 @@ public class StatsdReporter extends ScheduledReporter {
             if (!prefix.isEmpty()) {
                 writer.write(prefix);
             }
-            writer.write(sanitizeString(name));
+            writer.write(sanitizeString(baseName));  // Use baseName instead of full name
             writer.write(":");
             writer.write(value);
             writer.write("|");
             writer.write(statTypeStr);
-            if (appendTag != null) {
+
+            // Combine extracted tags with global appendTag
+            if (extractedTags != null || appendTag != null) {
                 writer.write("|#");
-                writer.write(appendTag);
+                if (extractedTags != null) {
+                    writer.write(extractedTags);
+                    if (appendTag != null) {
+                        writer.write(",");
+                        writer.write(appendTag);
+                    }
+                } else {
+                    writer.write(appendTag);
+                }
             }
+
             prependNewline = true;
             writer.flush();
 
