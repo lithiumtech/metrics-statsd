@@ -408,21 +408,23 @@ public class StatsdReporter extends ScheduledReporter {
     }
 
     protected void sendData(String name, String value, StatType statType) {
-        sendDataWithTags(name, value, statType, null);
-    }
-
-    /**
-     * Send metric data with per-metric tags (in addition to global appendTag).
-     * Properly formats tags in DogStatsD format: metric:value|type|#tag1:value1,tag2:value2
-     *
-     * @param name Metric name
-     * @param value Metric value
-     * @param statType Stat type (COUNTER, GAUGE, TIMER)
-     * @param perMetricTags Tags for this specific metric (comma-separated, e.g., "company:nike,env:qa")
-     */
-    protected void sendDataWithTags(String name, String value, StatType statType, String perMetricTags) {
         if (!isNumeric(value)) {
             return;
+        }
+
+        // Extract tags from metric name if present (format: baseName[tag1:value1,tag2:value2].suffix)
+        // Tags may appear in the middle of the name (e.g., "metric[tag:value].count")
+        String baseName = name;
+        String extractedTags = null;
+
+        int tagStart = name.indexOf('[');
+        int tagEnd = name.indexOf(']');
+        if (tagStart > 0 && tagEnd > tagStart) {
+            // Extract base name (everything before '[') + suffix (everything after ']')
+            String prefix = name.substring(0, tagStart);
+            String suffix = name.substring(tagEnd + 1);
+            baseName = prefix + suffix;
+            extractedTags = name.substring(tagStart + 1, tagEnd);
         }
 
         String statTypeStr = "";
@@ -445,27 +447,24 @@ public class StatsdReporter extends ScheduledReporter {
             if (!prefix.isEmpty()) {
                 writer.write(prefix);
             }
-            writer.write(sanitizeString(name));
+            writer.write(sanitizeString(baseName));  // Use baseName instead of full name
             writer.write(":");
             writer.write(value);
             writer.write("|");
             writer.write(statTypeStr);
 
-            // Combine per-metric tags with global appendTag
-            // Format: |#per-metric-tags,global-tags
-            if (perMetricTags != null && !perMetricTags.isEmpty()) {
+            // Combine extracted tags with global appendTag
+            if (extractedTags != null || appendTag != null) {
                 writer.write("|#");
-                writer.write(perMetricTags);
-
-                // Append global tags if configured
-                if (appendTag != null && !appendTag.isEmpty()) {
-                    writer.write(",");
+                if (extractedTags != null) {
+                    writer.write(extractedTags);
+                    if (appendTag != null) {
+                        writer.write(",");
+                        writer.write(appendTag);
+                    }
+                } else {
                     writer.write(appendTag);
                 }
-            } else if (appendTag != null) {
-                // Only global tags
-                writer.write("|#");
-                writer.write(appendTag);
             }
 
             prependNewline = true;
@@ -477,49 +476,6 @@ public class StatsdReporter extends ScheduledReporter {
             }
         } catch (IOException e) {
             LOG.error("Error sending to Graphite:", e);
-        }
-    }
-
-    /**
-     * Public method to allow external code to send metrics with tags.
-     * Thread-safe: can be called outside the scheduled report() cycle.
-     *
-     * @param name Metric name (without tags)
-     * @param value Metric value
-     * @param tags Comma-separated tags (e.g., "company:nike,env:qa")
-     */
-    public synchronized void sendMetricWithTags(String name, long value, String tags) {
-        try {
-            // Ensure writer is initialized (might be null outside report() cycle)
-            if (writer == null || currentSocket == null) {
-                currentSocket = this.socketProvider.get();
-                resetWriterState();
-            }
-
-            sendDataWithTags(name, String.valueOf(value), StatType.COUNTER, tags);
-
-            // Send immediately (don't wait for scheduled report)
-            sendDatagram();
-        } catch (Exception e) {
-            LOG.error("Error sending tagged metric: " + name, e);
-        }
-    }
-
-    /**
-     * Public method to send timer metric with tags.
-     * Thread-safe: can be called outside the scheduled report() cycle.
-     */
-    public synchronized void sendTimerWithTags(String name, long durationMs, String tags) {
-        try {
-            if (writer == null || currentSocket == null) {
-                currentSocket = this.socketProvider.get();
-                resetWriterState();
-            }
-
-            sendDataWithTags(name, String.valueOf(durationMs), StatType.TIMER, tags);
-            sendDatagram();
-        } catch (Exception e) {
-            LOG.error("Error sending tagged timer: " + name, e);
         }
     }
 
